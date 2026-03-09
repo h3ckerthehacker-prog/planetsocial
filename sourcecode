@@ -1,0 +1,1580 @@
+const ComponentFunction = function() {
+  // @section:imports @depends:[]
+  const React = require('react');
+  const { useState, useEffect, useContext, useMemo, useCallback } = React;
+  const { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, Platform, StatusBar, ActivityIndicator, KeyboardAvoidingView, FlatList, Image } = require('react-native');
+  const { MaterialIcons } = require('@expo/vector-icons');
+  const { createBottomTabNavigator } = require('@react-navigation/bottom-tabs');
+  const { useSafeAreaInsets } = require('react-native-safe-area-context');
+  const { useQuery, useMutation } = require('platform-hooks');
+  // @end:imports
+
+  // @section:constants @depends:[]
+  var TAB_BAR_HEIGHT = Platform.OS === 'web' ? 56 : 49;
+  var SCROLL_EXTRA_PADDING = 16;
+  var WEB_TAB_BAR_PADDING = 90;
+  var FAB_SPACING = 16;
+  // @end:constants
+
+  // @section:theme @depends:[]
+  const storageStrategy = 'all-local';
+  const primaryColor = '#FF6B35';
+  const accentColor = '#FF8C42';
+  const backgroundColor = '#FFFFFF';
+  const cardColor = '#F8F9FA';
+  const textPrimary = '#1A1A1A';
+  const textSecondary = '#6B7280';
+  const designStyle = 'modern';
+  // @end:theme
+
+  // @section:navigation-setup @depends:[]
+  const Tab = createBottomTabNavigator();
+  // @end:navigation-setup
+
+  // @section:ThemeContext @depends:[theme]
+  const ThemeContext = React.createContext();
+  const ThemeProvider = function(props) {
+    const darkModeState = useState(false);
+    const darkMode = darkModeState[0];
+    const setDarkMode = darkModeState[1];
+    const lightTheme = useMemo(function() {
+      return {
+        colors: {
+          primary: primaryColor,
+          accent: accentColor,
+          background: backgroundColor,
+          card: cardColor,
+          textPrimary: textPrimary,
+          textSecondary: textSecondary,
+          border: '#E5E7EB',
+          success: '#10B981',
+          error: '#EF4444',
+          warning: '#F59E0B'
+        }
+      };
+    }, []);
+    const darkTheme = useMemo(function() {
+      return {
+        colors: {
+          primary: primaryColor,
+          accent: accentColor,
+          background: '#1F2937',
+          card: '#374151',
+          textPrimary: '#F9FAFB',
+          textSecondary: '#D1D5DB',
+          border: '#4B5563',
+          success: '#10B981',
+          error: '#EF4444',
+          warning: '#F59E0B'
+        }
+      };
+    }, []);
+    const theme = darkMode ? darkTheme : lightTheme;
+    const toggleDarkMode = useCallback(function() {
+      setDarkMode(function(prev) { return !prev; });
+    }, []);
+    const value = useMemo(function() {
+      return { theme: theme, darkMode: darkMode, toggleDarkMode: toggleDarkMode, designStyle: designStyle };
+    }, [theme, darkMode, toggleDarkMode]);
+    return React.createElement(ThemeContext.Provider, { value: value }, props.children);
+  };
+  const useTheme = function() { return useContext(ThemeContext); };
+  // @end:ThemeContext
+
+  // @section:HomeScreen-state @depends:[ThemeContext]
+  const useHomeScreenState = function() {
+    const themeContext = useTheme();
+    const theme = themeContext.theme;
+    const { data: videos, loading: videosLoading, refetch: refetchVideos } = useQuery('videos', {}, { column: 'createdAt', ascending: false });
+    const { data: collections, loading: collectionsLoading, refetch: refetchCollections } = useQuery('collections');
+    const showAddModalState = useState(false);
+    const showAddModal = showAddModalState[0];
+    const setShowAddModal = showAddModalState[1];
+    const searchQueryState = useState('');
+    const searchQuery = searchQueryState[0];
+    const setSearchQuery = searchQueryState[1];
+    const selectedCollectionState = useState(null);
+    const selectedCollection = selectedCollectionState[0];
+    const setSelectedCollection = selectedCollectionState[1];
+    
+    const filteredVideos = useMemo(function() {
+      if (!videos) return [];
+      var filtered = videos;
+      if (searchQuery) {
+        filtered = filtered.filter(function(video) {
+          return video.title && video.title.toLowerCase().indexOf(searchQuery.toLowerCase()) !== -1;
+        });
+      }
+      if (selectedCollection) {
+        filtered = filtered.filter(function(video) {
+          return video.collection_id === selectedCollection;
+        });
+      }
+      return filtered;
+    }, [videos, searchQuery, selectedCollection]);
+
+    return {
+      theme: theme,
+      videos: videos || [],
+      collections: collections || [],
+      filteredVideos: filteredVideos,
+      videosLoading: videosLoading,
+      collectionsLoading: collectionsLoading,
+      showAddModal: showAddModal,
+      setShowAddModal: setShowAddModal,
+      searchQuery: searchQuery,
+      setSearchQuery: setSearchQuery,
+      selectedCollection: selectedCollection,
+      setSelectedCollection: setSelectedCollection,
+      refetchVideos: refetchVideos,
+      refetchCollections: refetchCollections
+    };
+  };
+  // @end:HomeScreen-state
+
+  // @section:HomeScreen-handlers @depends:[HomeScreen-state]
+  const homeScreenHandlers = {
+    clearFilters: function(state) {
+      state.setSearchQuery('');
+      state.setSelectedCollection(null);
+    },
+    selectCollection: function(state, collectionId) {
+      state.setSelectedCollection(collectionId === state.selectedCollection ? null : collectionId);
+    }
+  };
+  // @end:HomeScreen-handlers
+
+  // @section:HomeScreen-VideoCard @depends:[styles]
+  const renderVideoCard = function(video, theme, onPress) {
+    var collection = video.collection_name || 'Uncategorized';
+    return React.createElement(TouchableOpacity, {
+      style: [styles.videoCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+      onPress: function() { onPress(video); },
+      componentId: 'video-card-' + video.id
+    },
+      React.createElement(Image, {
+        source: { uri: 'IMAGE:video-thumbnail-landscape' },
+        style: styles.videoThumbnail,
+        componentId: 'video-thumbnail-' + video.id
+      }),
+      React.createElement(View, { style: styles.videoInfo, componentId: 'video-info-' + video.id },
+        React.createElement(Text, {
+          style: [styles.videoTitle, { color: theme.colors.textPrimary }],
+          numberOfLines: 2,
+          componentId: 'video-title-' + video.id
+        }, video.title || 'Untitled Video'),
+        React.createElement(Text, {
+          style: [styles.videoCollection, { color: theme.colors.accent }],
+          numberOfLines: 1,
+          componentId: 'video-collection-' + video.id
+        }, collection),
+        video.description ? React.createElement(Text, {
+          style: [styles.videoDescription, { color: theme.colors.textSecondary }],
+          numberOfLines: 2,
+          componentId: 'video-description-' + video.id
+        }, video.description) : null
+      )
+    );
+  };
+  // @end:HomeScreen-VideoCard
+
+  // @section:HomeScreen-CollectionChips @depends:[styles]
+  const renderCollectionChips = function(collections, selectedCollection, theme, onSelectCollection) {
+    return React.createElement(ScrollView, {
+      horizontal: true,
+      showsHorizontalScrollIndicator: false,
+      style: { flexGrow: 0 },
+      contentContainerStyle: styles.collectionChipsContainer,
+      componentId: 'collection-chips-scroll'
+    },
+      collections.map(function(collection) {
+        var isSelected = selectedCollection === collection.id;
+        return React.createElement(TouchableOpacity, {
+          key: collection.id,
+          style: [
+            styles.collectionChip,
+            {
+              backgroundColor: isSelected ? theme.colors.primary : theme.colors.card,
+              borderColor: isSelected ? theme.colors.primary : theme.colors.border
+            }
+          ],
+          onPress: function() { onSelectCollection(collection.id); },
+          componentId: 'collection-chip-' + collection.id
+        },
+          React.createElement(Text, {
+            style: [
+              styles.collectionChipText,
+              { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+            ],
+            componentId: 'collection-chip-text-' + collection.id
+          }, collection.name || 'Untitled Collection')
+        );
+      })
+    );
+  };
+  // @end:HomeScreen-CollectionChips
+
+  // @section:HomeScreen-AddVideoModal @depends:[styles]
+  const AddVideoModal = function(props) {
+    const visible = props.visible;
+    const onClose = props.onClose;
+    const onSubmit = props.onSubmit;
+    const theme = props.theme;
+    const collections = props.collections;
+    const insetsTop = props.insetsTop;
+    const insetsBottom = props.insetsBottom;
+
+    const titleState = useState('');
+    const title = titleState[0];
+    const setTitle = titleState[1];
+    const descriptionState = useState('');
+    const description = descriptionState[0];
+    const setDescription = descriptionState[1];
+    const sourceUrlState = useState('');
+    const sourceUrl = sourceUrlState[0];
+    const setSourceUrl = sourceUrlState[1];
+    const selectedCollectionState = useState('');
+    const selectedCollection = selectedCollectionState[0];
+    const setSelectedCollection = selectedCollectionState[1];
+
+    const handleSubmit = useCallback(function() {
+      if (!title.trim()) {
+        Platform.OS === 'web' ? window.alert('Please enter a video title') : Alert.alert('Error', 'Please enter a video title');
+        return;
+      }
+      onSubmit({
+        title: title.trim(),
+        description: description.trim(),
+        sourceUrl: sourceUrl.trim(),
+        collection_id: selectedCollection || null,
+        createdAt: new Date().toISOString()
+      });
+      setTitle('');
+      setDescription('');
+      setSourceUrl('');
+      setSelectedCollection('');
+    }, [title, description, sourceUrl, selectedCollection, onSubmit]);
+
+    return React.createElement(Modal, {
+      visible: visible,
+      animationType: 'slide',
+      presentationStyle: 'pageSheet',
+      transparent: true,
+      onRequestClose: onClose
+    },
+      React.createElement(View, {
+        style: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', marginTop: insetsTop },
+        componentId: 'add-video-modal-overlay'
+      },
+        React.createElement(View, {
+          style: {
+            flex: 1,
+            maxHeight: '90%',
+            marginHorizontal: 20,
+            backgroundColor: theme.colors.background,
+            borderRadius: 16,
+            padding: 20,
+            paddingBottom: insetsBottom + 20
+          },
+          componentId: 'add-video-modal-content'
+        },
+          React.createElement(View, { style: styles.modalHeader, componentId: 'add-video-modal-header' },
+            React.createElement(Text, {
+              style: [styles.modalTitle, { color: theme.colors.textPrimary }],
+              componentId: 'add-video-modal-title'
+            }, 'Add Video'),
+            React.createElement(TouchableOpacity, {
+              onPress: onClose,
+              style: styles.modalCloseButton,
+              componentId: 'add-video-modal-close'
+            },
+              React.createElement(MaterialIcons, { name: 'close', size: 24, color: theme.colors.textSecondary })
+            )
+          ),
+          React.createElement(ScrollView, { style: { flex: 1 }, componentId: 'add-video-modal-scroll' },
+            React.createElement(View, { style: styles.formGroup, componentId: 'title-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'title-label'
+              }, 'Title *'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter video title',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: title,
+                onChangeText: setTitle,
+                componentId: 'title-input'
+              })
+            ),
+            React.createElement(View, { style: styles.formGroup, componentId: 'description-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'description-label'
+              }, 'Description'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, styles.formTextArea, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter video description',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: description,
+                onChangeText: setDescription,
+                multiline: true,
+                numberOfLines: 3,
+                componentId: 'description-input'
+              })
+            ),
+            React.createElement(View, { style: styles.formGroup, componentId: 'source-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'source-label'
+              }, 'Source URL'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter video URL or file path',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: sourceUrl,
+                onChangeText: setSourceUrl,
+                keyboardType: 'url',
+                componentId: 'source-input'
+              })
+            ),
+            React.createElement(View, { style: styles.formGroup, componentId: 'collection-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'collection-label'
+              }, 'Collection'),
+              React.createElement(ScrollView, {
+                horizontal: true,
+                showsHorizontalScrollIndicator: false,
+                style: { flexGrow: 0 },
+                contentContainerStyle: styles.collectionSelectContainer,
+                componentId: 'collection-select-scroll'
+              },
+                React.createElement(TouchableOpacity, {
+                  style: [
+                    styles.collectionSelectChip,
+                    {
+                      backgroundColor: !selectedCollection ? theme.colors.primary : theme.colors.card,
+                      borderColor: !selectedCollection ? theme.colors.primary : theme.colors.border
+                    }
+                  ],
+                  onPress: function() { setSelectedCollection(''); },
+                  componentId: 'collection-select-none'
+                },
+                  React.createElement(Text, {
+                    style: [
+                      styles.collectionSelectChipText,
+                      { color: !selectedCollection ? '#FFFFFF' : theme.colors.textPrimary }
+                    ],
+                    componentId: 'collection-select-none-text'
+                  }, 'None')
+                ),
+                collections.map(function(collection) {
+                  var isSelected = selectedCollection === collection.id;
+                  return React.createElement(TouchableOpacity, {
+                    key: collection.id,
+                    style: [
+                      styles.collectionSelectChip,
+                      {
+                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.card,
+                        borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                      }
+                    ],
+                    onPress: function() { setSelectedCollection(collection.id); },
+                    componentId: 'collection-select-' + collection.id
+                  },
+                    React.createElement(Text, {
+                      style: [
+                        styles.collectionSelectChipText,
+                        { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+                      ],
+                      componentId: 'collection-select-text-' + collection.id
+                    }, collection.name || 'Untitled')
+                  );
+                })
+              )
+            )
+          ),
+          React.createElement(View, { style: styles.modalFooter, componentId: 'add-video-modal-footer' },
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.border }],
+              onPress: onClose,
+              componentId: 'add-video-cancel-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: theme.colors.textSecondary }],
+                componentId: 'add-video-cancel-text'
+              }, 'Cancel')
+            ),
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.primary }],
+              onPress: handleSubmit,
+              componentId: 'add-video-submit-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: '#FFFFFF' }],
+                componentId: 'add-video-submit-text'
+              }, 'Add Video')
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:HomeScreen-AddVideoModal
+
+  // @section:HomeScreen-FAB @depends:[styles]
+  const renderHomeScreenFAB = function(theme, onPress, bottomOffset) {
+    return React.createElement(TouchableOpacity, {
+      style: [styles.fab, { backgroundColor: theme.colors.primary, bottom: bottomOffset }],
+      onPress: onPress,
+      componentId: 'home-fab-add-video'
+    },
+      React.createElement(MaterialIcons, { name: 'add', size: 28, color: '#FFFFFF' })
+    );
+  };
+  // @end:HomeScreen-FAB
+
+  // @section:HomeScreen @depends:[HomeScreen-state,HomeScreen-handlers,HomeScreen-VideoCard,HomeScreen-CollectionChips,HomeScreen-AddVideoModal,HomeScreen-FAB,styles]
+  const HomeScreen = function() {
+    const state = useHomeScreenState();
+    const handlers = homeScreenHandlers;
+    const insets = useSafeAreaInsets();
+    const { mutate: insertVideo } = useMutation('videos', 'insert');
+    const scrollBottomPadding = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + SCROLL_EXTRA_PADDING);
+    const scrollTopPadding = insets.top;
+    const fabBottom = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + FAB_SPACING);
+
+    const handleAddVideo = useCallback(function(videoData) {
+      insertVideo(videoData)
+        .then(function() {
+          state.refetchVideos();
+          state.setShowAddModal(false);
+          Platform.OS === 'web' ? window.alert('Video added successfully!') : Alert.alert('Success', 'Video added successfully!');
+        })
+        .catch(function(error) {
+          Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
+        });
+    }, [insertVideo, state]);
+
+    const handleVideoPress = useCallback(function(video) {
+      var message = 'Title: ' + video.title + '\n' + 
+                   'Collection: ' + (video.collection_name || 'Uncategorized') + 
+                   (video.description ? '\n\nDescription: ' + video.description : '') +
+                   (video.sourceUrl ? '\n\nSource: ' + video.sourceUrl : '');
+      Platform.OS === 'web' ? window.alert(message) : Alert.alert('Video Details', message);
+    }, []);
+
+    if (state.videosLoading || state.collectionsLoading) {
+      return React.createElement(View, {
+        style: [styles.loadingContainer, { backgroundColor: state.theme.colors.background }],
+        componentId: 'home-loading'
+      },
+        React.createElement(ActivityIndicator, { size: 'large', color: state.theme.colors.primary, componentId: 'home-loading-indicator' }),
+        React.createElement(Text, {
+          style: [styles.loadingText, { color: state.theme.colors.textSecondary }],
+          componentId: 'home-loading-text'
+        }, 'Loading your video library...')
+      );
+    }
+
+    return React.createElement(View, {
+      style: [styles.container, { backgroundColor: state.theme.colors.background }],
+      componentId: 'home-screen'
+    },
+      React.createElement(ScrollView, {
+        style: { flex: 1 },
+        contentContainerStyle: { paddingTop: scrollTopPadding, paddingBottom: scrollBottomPadding },
+        showsVerticalScrollIndicator: false,
+        componentId: 'home-scroll'
+      },
+        React.createElement(View, { style: styles.header, componentId: 'home-header' },
+          React.createElement(View, { style: styles.headerTop, componentId: 'home-header-top' },
+            React.createElement(View, { style: styles.headerTitleContainer, componentId: 'home-header-title-container' },
+              React.createElement(Text, {
+                style: [styles.headerTitle, { color: state.theme.colors.textPrimary }],
+                componentId: 'home-header-title'
+              }, 'Planet'),
+              React.createElement(Text, {
+                style: [styles.headerSubtitle, { color: state.theme.colors.textSecondary }],
+                componentId: 'home-header-subtitle'
+              }, 'Your Personal Video Library')
+            )
+          ),
+          React.createElement(View, { style: styles.searchContainer, componentId: 'home-search-container' },
+            React.createElement(View, {
+              style: [styles.searchInputContainer, { backgroundColor: state.theme.colors.card, borderColor: state.theme.colors.border }],
+              componentId: 'home-search-input-container'
+            },
+              React.createElement(MaterialIcons, { name: 'search', size: 20, color: state.theme.colors.textSecondary }),
+              React.createElement(TextInput, {
+                style: [styles.searchInput, { color: state.theme.colors.textPrimary }],
+                placeholder: 'Search videos...',
+                placeholderTextColor: state.theme.colors.textSecondary,
+                value: state.searchQuery,
+                onChangeText: state.setSearchQuery,
+                componentId: 'home-search-input'
+              })
+            ),
+            (state.searchQuery || state.selectedCollection) ? React.createElement(TouchableOpacity, {
+              style: [styles.clearFiltersButton, { backgroundColor: state.theme.colors.accent }],
+              onPress: function() { handlers.clearFilters(state); },
+              componentId: 'home-clear-filters'
+            },
+              React.createElement(MaterialIcons, { name: 'clear', size: 16, color: '#FFFFFF' })
+            ) : null
+          )
+        ),
+        state.collections.length > 0 ? React.createElement(View, { style: styles.collectionsSection, componentId: 'home-collections-section' },
+          React.createElement(Text, {
+            style: [styles.sectionTitle, { color: state.theme.colors.textPrimary }],
+            componentId: 'home-collections-title'
+          }, 'Collections'),
+          renderCollectionChips(state.collections, state.selectedCollection, state.theme, function(collectionId) {
+            handlers.selectCollection(state, collectionId);
+          })
+        ) : null,
+        React.createElement(View, { style: styles.videosSection, componentId: 'home-videos-section' },
+          React.createElement(Text, {
+            style: [styles.sectionTitle, { color: state.theme.colors.textPrimary }],
+            componentId: 'home-videos-title'
+          }, state.filteredVideos.length > 0 ? ('Videos (' + state.filteredVideos.length + ')') : 'No Videos Found'),
+          state.filteredVideos.length > 0 ? state.filteredVideos.map(function(video) {
+            return renderVideoCard(video, state.theme, handleVideoPress);
+          }) : React.createElement(View, { style: styles.emptyState, componentId: 'home-empty-state' },
+            React.createElement(MaterialIcons, { name: 'video-library', size: 64, color: state.theme.colors.textSecondary }),
+            React.createElement(Text, {
+              style: [styles.emptyStateTitle, { color: state.theme.colors.textPrimary }],
+              componentId: 'home-empty-state-title'
+            }, state.searchQuery || state.selectedCollection ? 'No videos match your filters' : 'No videos in your library'),
+            React.createElement(Text, {
+              style: [styles.emptyStateSubtitle, { color: state.theme.colors.textSecondary }],
+              componentId: 'home-empty-state-subtitle'
+            }, state.searchQuery || state.selectedCollection ? 'Try adjusting your search or filters' : 'Tap the + button to add your first video')
+          )
+        )
+      ),
+      renderHomeScreenFAB(state.theme, function() { state.setShowAddModal(true); }, fabBottom),
+      React.createElement(AddVideoModal, {
+        visible: state.showAddModal,
+        onClose: function() { state.setShowAddModal(false); },
+        onSubmit: handleAddVideo,
+        theme: state.theme,
+        collections: state.collections,
+        insetsTop: insets.top,
+        insetsBottom: insets.bottom
+      })
+    );
+  };
+  // @end:HomeScreen
+
+  // @section:PlaylistsScreen-state @depends:[ThemeContext]
+  const usePlaylistsScreenState = function() {
+    const themeContext = useTheme();
+    const theme = themeContext.theme;
+    const { data: playlists, loading: playlistsLoading, refetch: refetchPlaylists } = useQuery('playlists', {}, { column: 'createdAt', ascending: false });
+    const { data: videos, loading: videosLoading } = useQuery('videos');
+    const showCreateModalState = useState(false);
+    const showCreateModal = showCreateModalState[0];
+    const setShowCreateModal = showCreateModalState[1];
+
+    return {
+      theme: theme,
+      playlists: playlists || [],
+      videos: videos || [],
+      playlistsLoading: playlistsLoading,
+      videosLoading: videosLoading,
+      showCreateModal: showCreateModal,
+      setShowCreateModal: setShowCreateModal,
+      refetchPlaylists: refetchPlaylists
+    };
+  };
+  // @end:PlaylistsScreen-state
+
+  // @section:PlaylistsScreen-CreateModal @depends:[styles]
+  const CreatePlaylistModal = function(props) {
+    const visible = props.visible;
+    const onClose = props.onClose;
+    const onSubmit = props.onSubmit;
+    const theme = props.theme;
+    const videos = props.videos;
+    const insetsTop = props.insetsTop;
+    const insetsBottom = props.insetsBottom;
+
+    const nameState = useState('');
+    const name = nameState[0];
+    const setName = nameState[1];
+    const descriptionState = useState('');
+    const description = descriptionState[0];
+    const setDescription = descriptionState[1];
+    const selectedVideosState = useState([]);
+    const selectedVideos = selectedVideosState[0];
+    const setSelectedVideos = selectedVideosState[1];
+
+    const toggleVideoSelection = useCallback(function(videoId) {
+      setSelectedVideos(function(prev) {
+        var index = prev.indexOf(videoId);
+        if (index > -1) {
+          return prev.filter(function(id) { return id !== videoId; });
+        } else {
+          return prev.concat([videoId]);
+        }
+      });
+    }, []);
+
+    const handleSubmit = useCallback(function() {
+      if (!name.trim()) {
+        Platform.OS === 'web' ? window.alert('Please enter a playlist name') : Alert.alert('Error', 'Please enter a playlist name');
+        return;
+      }
+      onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        videoIds: selectedVideos,
+        createdAt: new Date().toISOString()
+      });
+      setName('');
+      setDescription('');
+      setSelectedVideos([]);
+    }, [name, description, selectedVideos, onSubmit]);
+
+    return React.createElement(Modal, {
+      visible: visible,
+      animationType: 'slide',
+      presentationStyle: 'pageSheet',
+      transparent: true,
+      onRequestClose: onClose
+    },
+      React.createElement(View, {
+        style: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', marginTop: insetsTop },
+        componentId: 'create-playlist-modal-overlay'
+      },
+        React.createElement(View, {
+          style: {
+            flex: 1,
+            maxHeight: '90%',
+            marginHorizontal: 20,
+            backgroundColor: theme.colors.background,
+            borderRadius: 16,
+            padding: 20,
+            paddingBottom: insetsBottom + 20
+          },
+          componentId: 'create-playlist-modal-content'
+        },
+          React.createElement(View, { style: styles.modalHeader, componentId: 'create-playlist-modal-header' },
+            React.createElement(Text, {
+              style: [styles.modalTitle, { color: theme.colors.textPrimary }],
+              componentId: 'create-playlist-modal-title'
+            }, 'Create Playlist'),
+            React.createElement(TouchableOpacity, {
+              onPress: onClose,
+              style: styles.modalCloseButton,
+              componentId: 'create-playlist-modal-close'
+            },
+              React.createElement(MaterialIcons, { name: 'close', size: 24, color: theme.colors.textSecondary })
+            )
+          ),
+          React.createElement(ScrollView, { style: { flex: 1 }, componentId: 'create-playlist-modal-scroll' },
+            React.createElement(View, { style: styles.formGroup, componentId: 'playlist-name-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'playlist-name-label'
+              }, 'Name *'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter playlist name',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: name,
+                onChangeText: setName,
+                componentId: 'playlist-name-input'
+              })
+            ),
+            React.createElement(View, { style: styles.formGroup, componentId: 'playlist-description-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'playlist-description-label'
+              }, 'Description'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, styles.formTextArea, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter playlist description',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: description,
+                onChangeText: setDescription,
+                multiline: true,
+                numberOfLines: 3,
+                componentId: 'playlist-description-input'
+              })
+            ),
+            videos.length > 0 ? React.createElement(View, { style: styles.formGroup, componentId: 'playlist-videos-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'playlist-videos-label'
+              }, 'Videos (' + selectedVideos.length + ' selected)'),
+              videos.map(function(video) {
+                var isSelected = selectedVideos.indexOf(video.id) > -1;
+                return React.createElement(TouchableOpacity, {
+                  key: video.id,
+                  style: [
+                    styles.videoSelectItem,
+                    {
+                      backgroundColor: isSelected ? theme.colors.primary + '20' : theme.colors.card,
+                      borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                    }
+                  ],
+                  onPress: function() { toggleVideoSelection(video.id); },
+                  componentId: 'video-select-' + video.id
+                },
+                  React.createElement(View, { style: styles.videoSelectInfo, componentId: 'video-select-info-' + video.id },
+                    React.createElement(Text, {
+                      style: [styles.videoSelectTitle, { color: theme.colors.textPrimary }],
+                      numberOfLines: 1,
+                      componentId: 'video-select-title-' + video.id
+                    }, video.title || 'Untitled Video'),
+                    video.description ? React.createElement(Text, {
+                      style: [styles.videoSelectDescription, { color: theme.colors.textSecondary }],
+                      numberOfLines: 1,
+                      componentId: 'video-select-description-' + video.id
+                    }, video.description) : null
+                  ),
+                  React.createElement(MaterialIcons, {
+                    name: isSelected ? 'check-circle' : 'radio-button-unchecked',
+                    size: 24,
+                    color: isSelected ? theme.colors.primary : theme.colors.textSecondary
+                  })
+                );
+              })
+            ) : React.createElement(Text, {
+              style: [styles.emptyMessage, { color: theme.colors.textSecondary }],
+              componentId: 'playlist-no-videos'
+            }, 'No videos available to add to playlist')
+          ),
+          React.createElement(View, { style: styles.modalFooter, componentId: 'create-playlist-modal-footer' },
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.border }],
+              onPress: onClose,
+              componentId: 'create-playlist-cancel-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: theme.colors.textSecondary }],
+                componentId: 'create-playlist-cancel-text'
+              }, 'Cancel')
+            ),
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.primary }],
+              onPress: handleSubmit,
+              componentId: 'create-playlist-submit-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: '#FFFFFF' }],
+                componentId: 'create-playlist-submit-text'
+              }, 'Create Playlist')
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:PlaylistsScreen-CreateModal
+
+  // @section:PlaylistsScreen-PlaylistCard @depends:[styles]
+  const renderPlaylistCard = function(playlist, theme, onPress) {
+    var videoCount = (playlist.videoIds && playlist.videoIds.length) || 0;
+    return React.createElement(TouchableOpacity, {
+      style: [styles.playlistCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+      onPress: function() { onPress(playlist); },
+      componentId: 'playlist-card-' + playlist.id
+    },
+      React.createElement(View, { style: styles.playlistHeader, componentId: 'playlist-header-' + playlist.id },
+        React.createElement(MaterialIcons, { name: 'playlist-play', size: 40, color: theme.colors.primary }),
+        React.createElement(View, { style: styles.playlistInfo, componentId: 'playlist-info-' + playlist.id },
+          React.createElement(Text, {
+            style: [styles.playlistTitle, { color: theme.colors.textPrimary }],
+            numberOfLines: 2,
+            componentId: 'playlist-title-' + playlist.id
+          }, playlist.name || 'Untitled Playlist'),
+          React.createElement(Text, {
+            style: [styles.playlistVideoCount, { color: theme.colors.accent }],
+            componentId: 'playlist-video-count-' + playlist.id
+          }, videoCount + ' video' + (videoCount !== 1 ? 's' : ''))
+        )
+      ),
+      playlist.description ? React.createElement(Text, {
+        style: [styles.playlistDescription, { color: theme.colors.textSecondary }],
+        numberOfLines: 2,
+        componentId: 'playlist-description-' + playlist.id
+      }, playlist.description) : null
+    );
+  };
+  // @end:PlaylistsScreen-PlaylistCard
+
+  // @section:PlaylistsScreen @depends:[PlaylistsScreen-state,PlaylistsScreen-CreateModal,PlaylistsScreen-PlaylistCard,styles]
+  const PlaylistsScreen = function() {
+    const state = usePlaylistsScreenState();
+    const insets = useSafeAreaInsets();
+    const { mutate: insertPlaylist } = useMutation('playlists', 'insert');
+    const scrollBottomPadding = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + SCROLL_EXTRA_PADDING);
+    const scrollTopPadding = insets.top;
+    const fabBottom = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + FAB_SPACING);
+
+    const handleCreatePlaylist = useCallback(function(playlistData) {
+      insertPlaylist(playlistData)
+        .then(function() {
+          state.refetchPlaylists();
+          state.setShowCreateModal(false);
+          Platform.OS === 'web' ? window.alert('Playlist created successfully!') : Alert.alert('Success', 'Playlist created successfully!');
+        })
+        .catch(function(error) {
+          Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
+        });
+    }, [insertPlaylist, state]);
+
+    const handlePlaylistPress = useCallback(function(playlist) {
+      var videoCount = (playlist.videoIds && playlist.videoIds.length) || 0;
+      var message = 'Name: ' + playlist.name + '\n' +
+                   'Videos: ' + videoCount +
+                   (playlist.description ? '\n\nDescription: ' + playlist.description : '');
+      Platform.OS === 'web' ? window.alert(message) : Alert.alert('Playlist Details', message);
+    }, []);
+
+    if (state.playlistsLoading) {
+      return React.createElement(View, {
+        style: [styles.loadingContainer, { backgroundColor: state.theme.colors.background }],
+        componentId: 'playlists-loading'
+      },
+        React.createElement(ActivityIndicator, { size: 'large', color: state.theme.colors.primary, componentId: 'playlists-loading-indicator' }),
+        React.createElement(Text, {
+          style: [styles.loadingText, { color: state.theme.colors.textSecondary }],
+          componentId: 'playlists-loading-text'
+        }, 'Loading your playlists...')
+      );
+    }
+
+    return React.createElement(View, {
+      style: [styles.container, { backgroundColor: state.theme.colors.background }],
+      componentId: 'playlists-screen'
+    },
+      React.createElement(ScrollView, {
+        style: { flex: 1 },
+        contentContainerStyle: { paddingTop: scrollTopPadding, paddingBottom: scrollBottomPadding },
+        showsVerticalScrollIndicator: false,
+        componentId: 'playlists-scroll'
+      },
+        React.createElement(View, { style: styles.header, componentId: 'playlists-header' },
+          React.createElement(Text, {
+            style: [styles.headerTitle, { color: state.theme.colors.textPrimary }],
+            componentId: 'playlists-header-title'
+          }, 'Playlists'),
+          React.createElement(Text, {
+            style: [styles.headerSubtitle, { color: state.theme.colors.textSecondary }],
+            componentId: 'playlists-header-subtitle'
+          }, 'Create and manage your video collections')
+        ),
+        React.createElement(View, { style: styles.playlistsSection, componentId: 'playlists-section' },
+          state.playlists.length > 0 ? state.playlists.map(function(playlist) {
+            return renderPlaylistCard(playlist, state.theme, handlePlaylistPress);
+          }) : React.createElement(View, { style: styles.emptyState, componentId: 'playlists-empty-state' },
+            React.createElement(MaterialIcons, { name: 'playlist-add', size: 64, color: state.theme.colors.textSecondary }),
+            React.createElement(Text, {
+              style: [styles.emptyStateTitle, { color: state.theme.colors.textPrimary }],
+              componentId: 'playlists-empty-state-title'
+            }, 'No playlists yet'),
+            React.createElement(Text, {
+              style: [styles.emptyStateSubtitle, { color: state.theme.colors.textSecondary }],
+              componentId: 'playlists-empty-state-subtitle'
+            }, 'Create your first playlist to organize your videos')
+          )
+        )
+      ),
+      renderHomeScreenFAB(state.theme, function() { state.setShowCreateModal(true); }, fabBottom),
+      React.createElement(CreatePlaylistModal, {
+        visible: state.showCreateModal,
+        onClose: function() { state.setShowCreateModal(false); },
+        onSubmit: handleCreatePlaylist,
+        theme: state.theme,
+        videos: state.videos,
+        insetsTop: insets.top,
+        insetsBottom: insets.bottom
+      })
+    );
+  };
+  // @end:PlaylistsScreen
+
+  // @section:CollectionsScreen-state @depends:[ThemeContext]
+  const useCollectionsScreenState = function() {
+    const themeContext = useTheme();
+    const theme = themeContext.theme;
+    const { data: collections, loading: collectionsLoading, refetch: refetchCollections } = useQuery('collections', {}, { column: 'name', ascending: true });
+    const { data: videos, loading: videosLoading } = useQuery('videos');
+    const showCreateModalState = useState(false);
+    const showCreateModal = showCreateModalState[0];
+    const setShowCreateModal = showCreateModalState[1];
+
+    const collectionsWithCounts = useMemo(function() {
+      if (!collections || !videos) return [];
+      return collections.map(function(collection) {
+        var videoCount = videos.filter(function(video) {
+          return video.collection_id === collection.id;
+        }).length;
+        return Object.assign({}, collection, { videoCount: videoCount });
+      });
+    }, [collections, videos]);
+
+    return {
+      theme: theme,
+      collections: collectionsWithCounts,
+      collectionsLoading: collectionsLoading,
+      videosLoading: videosLoading,
+      showCreateModal: showCreateModal,
+      setShowCreateModal: setShowCreateModal,
+      refetchCollections: refetchCollections
+    };
+  };
+  // @end:CollectionsScreen-state
+
+  // @section:CollectionsScreen-CreateModal @depends:[styles]
+  const CreateCollectionModal = function(props) {
+    const visible = props.visible;
+    const onClose = props.onClose;
+    const onSubmit = props.onSubmit;
+    const theme = props.theme;
+    const insetsTop = props.insetsTop;
+    const insetsBottom = props.insetsBottom;
+
+    const nameState = useState('');
+    const name = nameState[0];
+    const setName = nameState[1];
+    const descriptionState = useState('');
+    const description = descriptionState[0];
+    const setDescription = descriptionState[1];
+
+    const handleSubmit = useCallback(function() {
+      if (!name.trim()) {
+        Platform.OS === 'web' ? window.alert('Please enter a collection name') : Alert.alert('Error', 'Please enter a collection name');
+        return;
+      }
+      onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        createdAt: new Date().toISOString()
+      });
+      setName('');
+      setDescription('');
+    }, [name, description, onSubmit]);
+
+    return React.createElement(Modal, {
+      visible: visible,
+      animationType: 'slide',
+      presentationStyle: 'pageSheet',
+      transparent: true,
+      onRequestClose: onClose
+    },
+      React.createElement(View, {
+        style: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.5)', marginTop: insetsTop },
+        componentId: 'create-collection-modal-overlay'
+      },
+        React.createElement(View, {
+          style: {
+            flex: 1,
+            maxHeight: '90%',
+            marginHorizontal: 20,
+            backgroundColor: theme.colors.background,
+            borderRadius: 16,
+            padding: 20,
+            paddingBottom: insetsBottom + 20
+          },
+          componentId: 'create-collection-modal-content'
+        },
+          React.createElement(View, { style: styles.modalHeader, componentId: 'create-collection-modal-header' },
+            React.createElement(Text, {
+              style: [styles.modalTitle, { color: theme.colors.textPrimary }],
+              componentId: 'create-collection-modal-title'
+            }, 'Create Collection'),
+            React.createElement(TouchableOpacity, {
+              onPress: onClose,
+              style: styles.modalCloseButton,
+              componentId: 'create-collection-modal-close'
+            },
+              React.createElement(MaterialIcons, { name: 'close', size: 24, color: theme.colors.textSecondary })
+            )
+          ),
+          React.createElement(ScrollView, { style: { flex: 1 }, componentId: 'create-collection-modal-scroll' },
+            React.createElement(View, { style: styles.formGroup, componentId: 'collection-name-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'collection-name-label'
+              }, 'Name *'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter collection name',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: name,
+                onChangeText: setName,
+                componentId: 'collection-name-input'
+              })
+            ),
+            React.createElement(View, { style: styles.formGroup, componentId: 'collection-description-form-group' },
+              React.createElement(Text, {
+                style: [styles.formLabel, { color: theme.colors.textPrimary }],
+                componentId: 'collection-description-label'
+              }, 'Description'),
+              React.createElement(TextInput, {
+                style: [styles.formInput, styles.formTextArea, { backgroundColor: theme.colors.card, color: theme.colors.textPrimary, borderColor: theme.colors.border }],
+                placeholder: 'Enter collection description',
+                placeholderTextColor: theme.colors.textSecondary,
+                value: description,
+                onChangeText: setDescription,
+                multiline: true,
+                numberOfLines: 3,
+                componentId: 'collection-description-input'
+              })
+            )
+          ),
+          React.createElement(View, { style: styles.modalFooter, componentId: 'create-collection-modal-footer' },
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.border }],
+              onPress: onClose,
+              componentId: 'create-collection-cancel-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: theme.colors.textSecondary }],
+                componentId: 'create-collection-cancel-text'
+              }, 'Cancel')
+            ),
+            React.createElement(TouchableOpacity, {
+              style: [styles.modalButton, { backgroundColor: theme.colors.primary }],
+              onPress: handleSubmit,
+              componentId: 'create-collection-submit-button'
+            },
+              React.createElement(Text, {
+                style: [styles.modalButtonText, { color: '#FFFFFF' }],
+                componentId: 'create-collection-submit-text'
+              }, 'Create Collection')
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:CollectionsScreen-CreateModal
+
+  // @section:CollectionsScreen-CollectionCard @depends:[styles]
+  const renderCollectionCard = function(collection, theme, onPress) {
+    return React.createElement(TouchableOpacity, {
+      style: [styles.collectionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+      onPress: function() { onPress(collection); },
+      componentId: 'collection-card-' + collection.id
+    },
+      React.createElement(View, { style: styles.collectionHeader, componentId: 'collection-header-' + collection.id },
+        React.createElement(MaterialIcons, { name: 'folder', size: 40, color: theme.colors.primary }),
+        React.createElement(View, { style: styles.collectionInfo, componentId: 'collection-info-' + collection.id },
+          React.createElement(Text, {
+            style: [styles.collectionTitle, { color: theme.colors.textPrimary }],
+            numberOfLines: 2,
+            componentId: 'collection-title-' + collection.id
+          }, collection.name || 'Untitled Collection'),
+          React.createElement(Text, {
+            style: [styles.collectionVideoCount, { color: theme.colors.accent }],
+            componentId: 'collection-video-count-' + collection.id
+          }, collection.videoCount + ' video' + (collection.videoCount !== 1 ? 's' : ''))
+        )
+      ),
+      collection.description ? React.createElement(Text, {
+        style: [styles.collectionDescription, { color: theme.colors.textSecondary }],
+        numberOfLines: 2,
+        componentId: 'collection-description-' + collection.id
+      }, collection.description) : null
+    );
+  };
+  // @end:CollectionsScreen-CollectionCard
+
+  // @section:CollectionsScreen @depends:[CollectionsScreen-state,CollectionsScreen-CreateModal,CollectionsScreen-CollectionCard,styles]
+  const CollectionsScreen = function() {
+    const state = useCollectionsScreenState();
+    const insets = useSafeAreaInsets();
+    const { mutate: insertCollection } = useMutation('collections', 'insert');
+    const scrollBottomPadding = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + SCROLL_EXTRA_PADDING);
+    const scrollTopPadding = insets.top;
+    const fabBottom = Platform.OS === 'web' ? WEB_TAB_BAR_PADDING : (TAB_BAR_HEIGHT + insets.bottom + FAB_SPACING);
+
+    const handleCreateCollection = useCallback(function(collectionData) {
+      insertCollection(collectionData)
+        .then(function() {
+          state.refetchCollections();
+          state.setShowCreateModal(false);
+          Platform.OS === 'web' ? window.alert('Collection created successfully!') : Alert.alert('Success', 'Collection created successfully!');
+        })
+        .catch(function(error) {
+          Platform.OS === 'web' ? window.alert(error.message) : Alert.alert('Error', error.message);
+        });
+    }, [insertCollection, state]);
+
+    const handleCollectionPress = useCallback(function(collection) {
+      var message = 'Name: ' + collection.name + '\n' +
+                   'Videos: ' + collection.videoCount +
+                   (collection.description ? '\n\nDescription: ' + collection.description : '');
+      Platform.OS === 'web' ? window.alert(message) : Alert.alert('Collection Details', message);
+    }, []);
+
+    if (state.collectionsLoading) {
+      return React.createElement(View, {
+        style: [styles.loadingContainer, { backgroundColor: state.theme.colors.background }],
+        componentId: 'collections-loading'
+      },
+        React.createElement(ActivityIndicator, { size: 'large', color: state.theme.colors.primary, componentId: 'collections-loading-indicator' }),
+        React.createElement(Text, {
+          style: [styles.loadingText, { color: state.theme.colors.textSecondary }],
+          componentId: 'collections-loading-text'
+        }, 'Loading your collections...')
+      );
+    }
+
+    return React.createElement(View, {
+      style: [styles.container, { backgroundColor: state.theme.colors.background }],
+      componentId: 'collections-screen'
+    },
+      React.createElement(ScrollView, {
+        style: { flex: 1 },
+        contentContainerStyle: { paddingTop: scrollTopPadding, paddingBottom: scrollBottomPadding },
+        showsVerticalScrollIndicator: false,
+        componentId: 'collections-scroll'
+      },
+        React.createElement(View, { style: styles.header, componentId: 'collections-header' },
+          React.createElement(Text, {
+            style: [styles.headerTitle, { color: state.theme.colors.textPrimary }],
+            componentId: 'collections-header-title'
+          }, 'Collections'),
+          React.createElement(Text, {
+            style: [styles.headerSubtitle, { color: state.theme.colors.textSecondary }],
+            componentId: 'collections-header-subtitle'
+          }, 'Organize your videos by category')
+        ),
+        React.createElement(View, { style: styles.collectionsSection, componentId: 'collections-list-section' },
+          state.collections.length > 0 ? state.collections.map(function(collection) {
+            return renderCollectionCard(collection, state.theme, handleCollectionPress);
+          }) : React.createElement(View, { style: styles.emptyState, componentId: 'collections-empty-state' },
+            React.createElement(MaterialIcons, { name: 'create-new-folder', size: 64, color: state.theme.colors.textSecondary }),
+            React.createElement(Text, {
+              style: [styles.emptyStateTitle, { color: state.theme.colors.textPrimary }],
+              componentId: 'collections-empty-state-title'
+            }, 'No collections yet'),
+            React.createElement(Text, {
+              style: [styles.emptyStateSubtitle, { color: state.theme.colors.textSecondary }],
+              componentId: 'collections-empty-state-subtitle'
+            }, 'Create your first collection to organize your videos')
+          )
+        )
+      ),
+      renderHomeScreenFAB(state.theme, function() { state.setShowCreateModal(true); }, fabBottom),
+      React.createElement(CreateCollectionModal, {
+        visible: state.showCreateModal,
+        onClose: function() { state.setShowCreateModal(false); },
+        onSubmit: handleCreateCollection,
+        theme: state.theme,
+        insetsTop: insets.top,
+        insetsBottom: insets.bottom
+      })
+    );
+  };
+  // @end:CollectionsScreen
+
+  // @section:TabNavigator @depends:[HomeScreen,PlaylistsScreen,CollectionsScreen,navigation-setup,styles]
+  const TabNavigator = function() {
+    const themeContext = useTheme();
+    const theme = themeContext.theme;
+    const insets = useSafeAreaInsets();
+
+    return React.createElement(Tab.Navigator, {
+      screenOptions: {
+        headerShown: false,
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textSecondary,
+        tabBarStyle: {
+          position: 'absolute',
+          bottom: 0,
+          height: TAB_BAR_HEIGHT + insets.bottom,
+          backgroundColor: theme.colors.background,
+          borderTopWidth: 0,
+          elevation: 8,
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8
+        },
+        tabBarItemStyle: { padding: 0 },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginBottom: Platform.OS === 'ios' ? 0 : 8
+        }
+      }
+    },
+      React.createElement(Tab.Screen, {
+        name: 'Home',
+        component: HomeScreen,
+        options: {
+          tabBarIcon: function(props) {
+            return React.createElement(MaterialIcons, {
+              name: 'home',
+              size: 24,
+              color: props.color
+            });
+          }
+        }
+      }),
+      React.createElement(Tab.Screen, {
+        name: 'Playlists',
+        component: PlaylistsScreen,
+        options: {
+          tabBarIcon: function(props) {
+            return React.createElement(MaterialIcons, {
+              name: 'playlist-play',
+              size: 24,
+              color: props.color
+            });
+          }
+        }
+      }),
+      React.createElement(Tab.Screen, {
+        name: 'Collections',
+        component: CollectionsScreen,
+        options: {
+          tabBarIcon: function(props) {
+            return React.createElement(MaterialIcons, {
+              name: 'folder',
+              size: 24,
+              color: props.color
+            });
+          }
+        }
+      })
+    );
+  };
+  // @end:TabNavigator
+
+  // @section:styles @depends:[theme]
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20
+    },
+    loadingText: {
+      fontSize: 16,
+      marginTop: 12,
+      textAlign: 'center'
+    },
+    header: {
+      padding: 20,
+      paddingBottom: 16
+    },
+    headerTop: {
+      marginBottom: 16
+    },
+    headerTitleContainer: {
+      alignItems: 'flex-start'
+    },
+    headerTitle: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      marginBottom: 4
+    },
+    headerSubtitle: {
+      fontSize: 16,
+      opacity: 0.8
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12
+    },
+    searchInputContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      gap: 8
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 16
+    },
+    clearFiltersButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    collectionsSection: {
+      paddingHorizontal: 20,
+      marginBottom: 24
+    },
+    sectionTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      marginBottom: 16
+    },
+    collectionChipsContainer: {
+      paddingRight: 20,
+      gap: 8
+    },
+    collectionChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      marginRight: 8
+    },
+    collectionChipText: {
+      fontSize: 14,
+      fontWeight: '500'
+    },
+    videosSection: {
+      paddingHorizontal: 20
+    },
+    videoCard: {
+      marginBottom: 16,
+      borderRadius: 16,
+      borderWidth: 1,
+      overflow: 'hidden',
+      elevation: 2,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8
+    },
+    videoThumbnail: {
+      width: '100%',
+      height: 200,
+      backgroundColor: '#F3F4F6'
+    },
+    videoInfo: {
+      padding: 16
+    },
+    videoTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 4,
+      lineHeight: 22
+    },
+    videoCollection: {
+      fontSize: 14,
+      fontWeight: '500',
+      marginBottom: 8
+    },
+    videoDescription: {
+      fontSize: 14,
+      lineHeight: 20
+    },
+    playlistsSection: {
+      paddingHorizontal: 20
+    },
+    playlistCard: {
+      marginBottom: 16,
+      padding: 16,
+      borderRadius: 16,
+      borderWidth: 1,
+      elevation: 2,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8
+    },
+    playlistHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8
+    },
+    playlistInfo: {
+      flex: 1,
+      marginLeft: 12
+    },
+    playlistTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 4,
+      lineHeight: 22
+    },
+    playlistVideoCount: {
+      fontSize: 14,
+      fontWeight: '500'
+    },
+    playlistDescription: {
+      fontSize: 14,
+      lineHeight: 20
+    },
+    collectionCard: {
+      marginBottom: 16,
+      padding: 16,
+      borderRadius: 16,
+      borderWidth: 1,
+      elevation: 2,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8
+    },
+    collectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8
+    },
+    collectionInfo: {
+      flex: 1,
+      marginLeft: 12
+    },
+    collectionTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 4,
+      lineHeight: 22
+    },
+    collectionVideoCount: {
+      fontSize: 14,
+      fontWeight: '500'
+    },
+    collectionDescription: {
+      fontSize: 14,
+      lineHeight: 20
+    },
+    emptyState: {
+      alignItems: 'center',
+      padding: 40
+    },
+    emptyStateTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      marginTop: 16,
+      marginBottom: 8,
+      textAlign: 'center'
+    },
+    emptyStateSubtitle: {
+      fontSize: 16,
+      textAlign: 'center',
+      lineHeight: 22
+    },
+    fab: {
+      position: 'absolute',
+      right: 20,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      elevation: 8,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 24
+    },
+    modalTitle: {
+      fontSize: 24,
+      fontWeight: 'bold'
+    },
+    modalCloseButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    modalFooter: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 24
+    },
+    modalButton: {
+      flex: 1,
+      paddingVertical: 16,
+      borderRadius: 12,
+      alignItems: 'center'
+    },
+    modalButtonText: {
+      fontSize: 16,
+      fontWeight: '600'
+    },
+    formGroup: {
+      marginBottom: 20
+    },
+    formLabel: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 8
+    },
+    formInput: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      fontSize: 16
+    },
+    formTextArea: {
+      height: 80,
+      textAlignVertical: 'top'
+    },
+    collectionSelectContainer: {
+      paddingRight: 20,
+      gap: 8
+    },
+    collectionSelectChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      marginRight: 8
+    },
+    collectionSelectChipText: {
+      fontSize: 14,
+      fontWeight: '500'
+    },
+    videoSelectItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      marginBottom: 8
+    },
+    videoSelectInfo: {
+      flex: 1,
+      marginRight: 12
+    },
+    videoSelectTitle: {
+      fontSize: 16,
+      fontWeight: '500',
+      marginBottom: 2
+    },
+    videoSelectDescription: {
+      fontSize: 14
+    },
+    emptyMessage: {
+      fontSize: 16,
+      textAlign: 'center',
+      fontStyle: 'italic',
+      padding: 20
+    }
+  });
+  // @end:styles
+
+  // @section:return @depends:[ThemeProvider,TabNavigator]
+  return React.createElement(ThemeProvider, null,
+    React.createElement(View, { style: { flex: 1, width: '100%', height: '100%', overflow: 'hidden' } },
+      React.createElement(StatusBar, { barStyle: 'dark-content' }),
+      React.createElement(TabNavigator)
+    )
+  );
+  // @end:return
+};
+return ComponentFunction;
